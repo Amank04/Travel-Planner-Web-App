@@ -1,15 +1,118 @@
-// components/PackageArchive.tsx
+"use client";
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+import Image from "next/image";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation"; // For App Router search params
 
-import React from 'react';
-import Image from 'next/image';
-import Link from 'next/link'; // Import the Link component
+interface Place {
+  place_id: string;
+  name: string;
+  vicinity: string;
+  rating: number;
+  user_ratings_total: number;
+  photoUrl: string;
+  lat: number;
+  lng: number;
+}
 
-const PackageArchive = () => {
+const ITEMS_PER_PAGE = 4; // Number of places to show per page
+
+const PackageArchive: React.FC = () => {
+  const searchParams = useSearchParams();
+  const city = searchParams.get("city"); // Get the 'city' from query params
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [currentPage, setCurrentPage] = useState(1); // Current page state
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const apiKey = process.env.NEXT_PUBLIC_GOMAPS_API_KEY as string;
+
+  const getPhotoUrl = (photoReference: string) =>
+    `https://maps.gomaps.pro/maps/api/place/photo?photo_reference=${photoReference}&maxwidth=400&key=${apiKey}`;
+
+  const fetchPlaces = async (destination: string) => {
+    try {
+      const geocodeResponse = await axios.get(
+        `https://maps.gomaps.pro/maps/api/geocode/json`,
+        {
+          params: {
+            address: destination,
+            key: apiKey,
+          },
+        }
+      );
+
+      if (geocodeResponse.data.status !== "OK") {
+        console.error("Geocode API Error:", geocodeResponse.data);
+        setError(`Error: ${geocodeResponse.data.status}`);
+        return;
+      }
+
+      const { lat, lng } = geocodeResponse.data.results[0].geometry.location;
+
+      const response = await axios.get(
+        `https://maps.gomaps.pro/maps/api/place/nearbysearch/json`,
+        {
+          params: {
+            location: `${lat},${lng}`,
+            radius: 50000,
+            type: "tourist_attraction",
+            key: apiKey,
+          },
+        }
+      );
+
+      if (response.data.status !== "OK") {
+        console.error("Nearby Search API Error:", response.data);
+        setError(`Error: ${response.data.status}`);
+        return;
+      }
+
+      const fetchedPlaces = response.data.results.map((place: any) => ({
+        place_id: place.place_id,
+        name: place.name,
+        vicinity: place.vicinity || "No address available",
+        rating: place.rating || 0,
+        user_ratings_total: place.user_ratings_total || 0,
+        photoUrl: place.photos?.[0]?.photo_reference
+          ? getPhotoUrl(place.photos[0].photo_reference)
+          : "/placeholder-image.png",
+        lat: place.geometry.location.lat,
+        lng: place.geometry.location.lng,
+      }));
+
+      setPlaces(fetchedPlaces);
+    } catch (error) {
+      console.error("Error fetching places:", error);
+      setError(
+        "Unable to fetch places. Please check your API key and network connection."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (city) fetchPlaces(city);
+  }, [city]);
+
+  // Calculate the places to display on the current page
+  const indexOfLastItem = currentPage * ITEMS_PER_PAGE;
+  const indexOfFirstItem = indexOfLastItem - ITEMS_PER_PAGE;
+  const currentPlaces = places.slice(indexOfFirstItem, indexOfLastItem);
+
+  const totalPages = Math.ceil(places.length / ITEMS_PER_PAGE);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
   return (
     <div className="max-w-7xl mx-auto p-6">
-      {/* Hero Section with Background Image */}
+      {/* Hero Section */}
       <div className="relative h-[500px] mb-24">
-        <Image
+        <img
           src="/packages-archive-hero-background.png"
           alt="Hero Background"
           layout="fill"
@@ -19,55 +122,61 @@ const PackageArchive = () => {
         <div className="absolute inset-0 bg-black bg-opacity-30 flex flex-col items-center justify-center"></div>
       </div>
 
-      {/* Input and Button Section Overlapping Hero */}
-      <div className="absolute inset-x-0 -mt-28 flex items-center justify-center z-10 bg-white bg-opacity-90 backdrop-filter backdrop-blur-lg rounded-lg shadow-lg p-6 max-w-4xl mx-auto">
-        <input
-          type="date"
-          className="border rounded-md p-2 mr-4 bg-transparent"
-          aria-label="Select Date"
-          title="Select Date"
-        />
-        <button className="bg-gray-300 text-black rounded-md p-2 mx-2 bg-transparent">
-          Price Low To High
-        </button>
-        <button className="bg-gray-300 text-black rounded-md p-2 mx-2 bg-transparent">
-          Price High To Low
-        </button>
-        <button className="bg-gray-300 text-black rounded-md p-2 mx-2 bg-transparent">
-          Name (A-Z)
-        </button>
-      </div>
-
-      {/* Main Content Area */}
       <div className="relative flex flex-col md:flex-row mt-32 gap-6">
-        {/* Tour Package Cards */}
+        {/* Tour Packages Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {Array(3).fill(null).map((_, index) => (
-            <Link key={index} href="/tourinfo" passHref>
-              <div className="bg-white rounded-lg shadow-md p-4 text-center cursor-pointer hover:shadow-xl transition-shadow">
+          {loading ? (
+            <div className="text-center">Loading...</div>
+          ) : error ? (
+            <div className="text-center text-red-500">{error}</div>
+          ) : (
+            currentPlaces.map((place, index) => (
+              <Link
+              key={index}
+              href={{
+                pathname: `/tourinfo/${place.place_id}/information`,
+                query: {
+                  name: place.name,
+                  vicinity: place.vicinity,
+                  rating: place.rating,
+                  user_ratings_total: place.user_ratings_total,
+                  lat: place.lat,
+                  lng: place.lng,
+                },
+              }}
+            >
+              <div className="bg-white rounded-lg shadow-md p-4 cursor-pointer hover:shadow-xl">
                 <Image
-                  src="/Kashmir.jpg"
-                  alt="Kashmir Tour"
+                  src={place.photoUrl}
+                  alt={place.name}
                   width={300}
                   height={200}
                   className="rounded-t-lg"
                 />
                 <div className="mt-4">
-                  <h2 className="text-lg font-semibold">Kashmir</h2>
-                  <p className="text-gray-600">Rs. 20,000</p>
-                  <p className="text-gray-600">5 Days 4 Nights</p>
-                  <p className="text-sm text-gray-500 mt-2">Date: 15 September 2024</p>
+                  <h2 className="text-lg font-semibold">{place.name}</h2>
+                  <p className="text-gray-600">{place.vicinity}</p>
+                  <p className="text-gray-600">Rating: {place.rating}</p>
+                  <p className="text-sm text-gray-500">
+                    {place.user_ratings_total} reviews
+                  </p>
                 </div>
               </div>
             </Link>
-          ))}
+            
+            
+            ))
+          )}
         </div>
 
-        {/* Plan Your Trip Section */}
+        {/* Plan Your Trip Section (Sidebar) */}
         <div className="w-full md:w-1/3 bg-gray-100 p-6 rounded-lg shadow-lg relative">
           <h2 className="text-xl font-semibold mb-4">Plan Your Trip</h2>
 
-          <label htmlFor="search-tour" className="block mb-2 text-sm text-gray-700">
+          <label
+            htmlFor="search-tour"
+            className="block mb-2 text-sm text-gray-700"
+          >
             Search Tour
           </label>
           <input
@@ -77,7 +186,10 @@ const PackageArchive = () => {
             className="border rounded-md p-2 mb-4 w-full"
           />
 
-          <label htmlFor="where-to" className="block mb-2 text-sm text-gray-700">
+          <label
+            htmlFor="where-to"
+            className="block mb-2 text-sm text-gray-700"
+          >
             Where To?
           </label>
           <input
@@ -87,7 +199,10 @@ const PackageArchive = () => {
             className="border rounded-md p-2 mb-4 w-full"
           />
 
-          <label htmlFor="trip-date" className="block mb-2 text-sm text-gray-700">
+          <label
+            htmlFor="trip-date"
+            className="block mb-2 text-sm text-gray-700"
+          >
             Trip Date
           </label>
           <input
@@ -96,7 +211,10 @@ const PackageArchive = () => {
             className="border rounded-md p-2 mb-4 w-full"
           />
 
-          <label htmlFor="price-range" className="block mb-2 text-sm text-gray-700">
+          <label
+            htmlFor="price-range"
+            className="block mb-2 text-sm text-gray-700"
+          >
             Filter by Price
           </label>
           <div className="flex items-center mb-4">
@@ -107,7 +225,9 @@ const PackageArchive = () => {
               max="1200"
               className="w-full"
             />
-            <span className="ml-4 text-sm text-gray-600">Price: $12 - $1200</span>
+            <span className="ml-4 text-sm text-gray-600">
+              Price: $12 - $1200
+            </span>
           </div>
 
           <button className="bg-red-500 text-white w-full py-2 rounded-md mt-4">
@@ -115,21 +235,35 @@ const PackageArchive = () => {
           </button>
 
           <div className="absolute bottom-0 right-0 transform translate-x-10 translate-y-10">
-            <img src="/bag-airplane.svg" alt="Bag and Plane" className="w-24 h-auto" />
+            <Image
+              src="/bag-airplane.svg"
+              alt="Bag and Plane"
+              width={96}
+              height={96}
+            />
           </div>
         </div>
       </div>
 
-      {/* Pagination Section */}
+      {/* Pagination Controls */}
       <footer className="flex justify-center mt-10">
-        <span className="px-2 cursor-pointer">1</span>
-        <span className="px-2 cursor-pointer">2</span>
-        <span className="px-2 cursor-pointer">3</span>
-        <span className="px-2 cursor-pointer">4</span>
+        {Array.from({ length: totalPages }, (_, index) => (
+          <button
+            key={index}
+            onClick={() => handlePageChange(index + 1)}
+            className={`px-3 py-1 mx-1 rounded-md ${
+              currentPage === index + 1
+                ? "bg-blue-500 text-white"
+                : "bg-gray-300"
+            }`}
+          >
+            {index + 1}
+          </button>
+        ))}
       </footer>
 
       <div className="absolute top-0 right-0 transform translate-x-20 -translate-y-10">
-        <img src="/seashell.svg" alt="Seashell" className="w-12 h-auto" />
+        <img src="/seashell.svg" alt="Seashell" width={48} height={48} />
       </div>
     </div>
   );
